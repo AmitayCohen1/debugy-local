@@ -52,4 +52,3 @@ For production logging, check out [debugy.dev](https://www.debugy.dev). Cloud mo
 ## License
 
 MIT
-# debugy

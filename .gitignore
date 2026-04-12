@@ -1,1 +1,7 @@
+node_modules/
+.next/
+.debugy/
+.env
+.env.*
+*.log
 .DS_Store
