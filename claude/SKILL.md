@@ -4,41 +4,29 @@ description: Runtime debugging workflow for Debugy.
 allowed-tools: Bash(node *) Read Write Edit Glob Grep
 ---
 
-# Debugy - Local Runtime Visibility
+# Debugy
 
-Treat Debugy as a reusable Claude skill. Use it when static code reading is not enough and you need runtime evidence from the app.
+Use Debugy when static code reading is not enough and you need runtime evidence.
 
-## How It Works
+## Two log sources
 
-Debugy gives you two sources of runtime evidence:
+1. **Server log** (local dev only) — `.debugy/server.log` passively captures all dev server output. Check this first — the error is often already there.
+2. **`debugy.log()`** (local + cloud) — structured logs you add for targeted visibility. `DEBUGY_ENV` decides where they go:
+   - `development` → `.debugy/session.ndjson`
+   - `production` → Debugy Cloud
+   - not set → disabled
 
-1. **Server log** — `.debugy/server.log` captures all dev server output (errors, warnings, stack traces) passively. Capped at the last 500 lines so it stays readable.
-2. **Session log** — `.debugy/session.ndjson` captures structured `debugy.log()` calls you add for targeted visibility.
+Always use `debugy.log()`. Never build a custom logger or HTTP client. Adapt the template below to the project's language.
 
-No network, no API keys. Just local files the agent reads.
-
-## Setup
-
-### 1. Server Log Capture
-
-Start the dev server with output piped to `.debugy/server.log`:
-
-```bash
-mkdir -p .debugy
-<your-dev-command> 2>&1 | tee .debugy/server.log
-```
-
-This captures everything the framework logs — errors, stack traces, warnings, request logs — automatically.
-
-### 2. Structured Logger (optional)
-
-For targeted instrumentation, add the Debugy logger. Here's a TypeScript example for local mode — if the project uses a different language, implement the same behavior in that language:
+## Logger template
 
 ```ts
 // lib/debugy.ts
 import { appendFileSync, mkdirSync } from "node:fs";
 
 const DEBUGY_ENV = process.env.DEBUGY_ENV ?? "";
+const DEBUGY_WRITE_KEY = process.env.DEBUGY_WRITE_KEY ?? "";
+const DEBUGY_CLOUD_URL = "https://www.debugy.dev";
 
 function log(file: string, fn: string, message: string, opts: { level?: string; duration_ms?: number; metadata?: Record<string, string | number | boolean | null> } = {}) {
   const entry = {
@@ -52,29 +40,34 @@ function log(file: string, fn: string, message: string, opts: { level?: string; 
     ...(opts.metadata && { metadata: opts.metadata }),
   };
 
-  if (DEBUGY_ENV === "development") {
+  if (DEBUGY_ENV === "production" && DEBUGY_WRITE_KEY) {
+    fetch(`${DEBUGY_CLOUD_URL}/api/logs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEBUGY_WRITE_KEY}` },
+      body: JSON.stringify(entry),
+    }).catch(() => {});
+  } else if (DEBUGY_ENV === "development") {
     if (typeof window !== "undefined") {
-      // Browser: POST to local dev server
       fetch("/api/debugy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(entry),
       }).catch(() => {});
     } else {
-      // Node.js: write directly to file
       try {
         mkdirSync(".debugy", { recursive: true });
         appendFileSync(".debugy/session.ndjson", JSON.stringify(entry) + "\n");
       } catch { console.warn("debugy: failed to write log"); }
     }
   }
-  // No DEBUGY_ENV → no-op
 }
 
 export const debugy = { log };
 ```
 
-**Client-side logs (local mode):** If the project has browser code, add a local API route so client logs reach the same file. Here's a Next.js example — adapt for your framework:
+If the project uses a different language, implement the same behavior.
+
+**Browser logs (local mode):** Add a local API route so client logs reach the same file:
 
 ```ts
 // app/api/debugy/route.ts
@@ -88,99 +81,53 @@ export async function POST(req: Request) {
 }
 ```
 
-Make sure `.debugy/` is in `.gitignore`.
+## Setup
 
-Add `DEBUGY_ENV=development` to your `.env` file. This tells Debugy to save logs locally. Without it, logging is disabled.
-
-## After Install
-
-Once setup is complete:
-
-1. **Create a dev:debugy script.** Detect the project's dev command, OS, and shell, then create a script that pipes server output to `.debugy/server.log` while still printing to stdout. Use `tee` on Unix/WSL or `Tee-Object` on PowerShell. Examples for Unix:
-   - **Node.js (package.json):** add `"dev:debugy": "mkdir -p .debugy && FORCE_COLOR=1 npm run dev 2>&1 | tee .debugy/server.log"`
-   - **Python:** create `scripts/dev-debugy.sh` with `mkdir -p .debugy && FORCE_COLOR=1 python manage.py runserver 2>&1 | tee .debugy/server.log`
-   - **Go:** create `scripts/dev-debugy.sh` with `mkdir -p .debugy && FORCE_COLOR=1 go run . 2>&1 | tee .debugy/server.log`
-   - Adapt the dev command and piping mechanism to whatever the project and environment actually use.
-
-2. **Suggest 3-5 high-value places** to add permanent `debugy.log()` calls — API entry points, error handlers, auth flows, database queries, or external service calls. Present them to the user for approval before adding.
+1. Add `.debugy/` to `.gitignore`.
+2. Create a dev:debugy script that pipes server output to `.debugy/server.log`:
+   - **Node.js:** `"dev:debugy": "mkdir -p .debugy && FORCE_COLOR=1 npm run dev 2>&1 | tee .debugy/server.log"`
+   - **Python:** `mkdir -p .debugy && FORCE_COLOR=1 python manage.py runserver 2>&1 | tee .debugy/server.log`
+   - **Go:** `mkdir -p .debugy && FORCE_COLOR=1 go run . 2>&1 | tee .debugy/server.log`
+3. Suggest 3-5 high-value places for permanent `debugy.log()` calls — API entry points, error handlers, auth flows. Present to the user before adding.
 
 ## Workflow
 
-When asked to debug with Debugy:
-1. Clear logs to start a fresh session
-2. Check `.debugy/server.log` first for errors, stack traces, and warnings
-3. If more visibility is needed, add `debugy.log()` calls at targeted spots — use `level: "info"` for general flow, `level: "error"` for failures
-4. Ask the user to run or reproduce the issue
-5. Read both `.debugy/server.log` and `.debugy/session.ndjson`, diagnose errors, warnings, timings, and patterns
-6. Apply the fix
-7. Remove temporary Debugy calls when done (keep any permanent ones the user approved)
+1. Clear logs: `rm -f .debugy/session.ndjson .debugy/server.log`
+2. Check `.debugy/server.log` first for errors and stack traces
+3. If more visibility is needed, add `debugy.log()` calls at targeted spots
+4. Ask the user to reproduce the issue
+5. Read logs, diagnose, fix
+6. Remove temporary `debugy.log()` calls when done
 
-## Reading Logs
+## Reading logs
 
-Server output (framework errors, stack traces):
+**Local:**
 ```bash
 cat .debugy/server.log
-```
-
-Last 50 lines of server output:
-```bash
-tail -50 .debugy/server.log
-```
-
-Errors in server log:
-```bash
-grep -i 'error' .debugy/server.log
-```
-
-Structured session logs:
-```bash
 cat .debugy/session.ndjson
-```
-
-Errors only (session):
-```bash
+grep -i 'error' .debugy/server.log
 grep '"level":"error"' .debugy/session.ndjson
 ```
 
-Search for a term:
-```bash
-grep '<QUERY>' .debugy/server.log .debugy/session.ndjson
+**Cloud:** fetch with `DEBUGY_AGENT_KEY` — see the setup prompt for API details.
+
+## debugy.log() contract
+
 ```
-
-## Clear Logs
-
-Start a fresh session:
-```bash
-rm -f .debugy/session.ndjson .debugy/server.log
-```
-
-## Housekeeping
-
-- Clear log files at the start of each new debug workflow
-- Keep `.debugy/server.log` capped at 500 lines. If it exceeds that, truncate:
-  ```bash
-  tail -500 .debugy/server.log > .debugy/server.tmp && mv .debugy/server.tmp .debugy/server.log
-  ```
-- If `.debugy/session.ndjson` exceeds ~500 lines mid-session, keep only the latest 200:
-  ```bash
-  tail -200 .debugy/session.ndjson > .debugy/session.tmp && mv .debugy/session.tmp .debugy/session.ndjson
-  ```
-- Always inform the user when cleaning up: how many debugy.log() calls were removed, whether files were cleared or truncated, and how many lines were kept
-
-## debugy.log() Contract
-
-```ts
 debugy.log(file, fn, message, { level?, duration_ms?, metadata? })
 ```
 
-- `message` is required; `file` and `fn` are optional but recommended
 - Fire-and-forget; never await in hot paths
 - Never log secrets, tokens, credentials, or PII
 
 ## Rules
 
 - Ask before adding logs or running code
-- Check `.debugy/server.log` before adding manual instrumentation — the error might already be there
+- Check server.log before adding manual instrumentation
 - Prefer high-signal logs with real values in `metadata`
-- Focus on API entry/exit, external calls, decision branches, async boundaries, and error paths
-- Remove Debugy calls when debugging is complete
+- Remove temporary Debugy calls when debugging is complete
+
+## Housekeeping
+
+- Cap `.debugy/server.log` at 500 lines: `tail -500 .debugy/server.log > .debugy/server.tmp && mv .debugy/server.tmp .debugy/server.log`
+- Cap `.debugy/session.ndjson` at 200 lines: `tail -200 .debugy/session.ndjson > .debugy/session.tmp && mv .debugy/session.tmp .debugy/session.ndjson`
