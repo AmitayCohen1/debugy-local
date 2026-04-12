@@ -171,3 +171,7 @@ debugy.log(file, fn, message, { level?, duration_ms?, metadata? })
 ### Cloud Mode
 
 `DEBUGY_ENV` decides where logs go. When set to `development`, logs save to the local file. Any other value (`production`, `staging`, etc.) with `DEBUGY_WRITE_KEY` set sends logs to the cloud API. If `DEBUGY_ENV` is not set, logging is disabled. The agent reads cloud logs via `DEBUGY_AGENT_KEY`.
+
+### Log Retention (Cloud)
+
+Cloud logs on the free tier are kept for 15 days and capped at 5,000 per project. Oldest logs are auto-deleted when limits are exceeded. Monthly quota is 5,000 log calls, resetting each calendar month. Local logs have no limits.
