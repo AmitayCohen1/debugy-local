@@ -65,7 +65,7 @@ function log(file: string, fn: string, message: string, opts: { level?: string; 
       try {
         mkdirSync(".debugy", { recursive: true });
         appendFileSync(".debugy/session.ndjson", JSON.stringify(entry) + "\n");
-      } catch {}
+      } catch { console.warn("debugy: failed to write log"); }
     }
   }
   // No DEBUGY_ENV → no-op
@@ -96,11 +96,11 @@ Add `DEBUGY_ENV=development` to your `.env` file. This tells Debugy to save logs
 
 Once setup is complete:
 
-1. **Create a dev:debugy script.** Detect the project's dev command and create a convenient way to run it with server log capture. Examples:
+1. **Create a dev:debugy script.** Detect the project's dev command, OS, and shell, then create a script that pipes server output to `.debugy/server.log` while still printing to stdout. Use `tee` on Unix/WSL or `Tee-Object` on PowerShell. Examples for Unix:
    - **Node.js (package.json):** add `"dev:debugy": "mkdir -p .debugy && FORCE_COLOR=1 npm run dev 2>&1 | tee .debugy/server.log"`
    - **Python:** create `scripts/dev-debugy.sh` with `mkdir -p .debugy && FORCE_COLOR=1 python manage.py runserver 2>&1 | tee .debugy/server.log`
    - **Go:** create `scripts/dev-debugy.sh` with `mkdir -p .debugy && FORCE_COLOR=1 go run . 2>&1 | tee .debugy/server.log`
-   - Adapt the dev command to whatever the project actually uses.
+   - Adapt the dev command and piping mechanism to whatever the project and environment actually use.
 
 2. **Suggest 3-5 high-value places** to add permanent `debugy.log()` calls — API entry points, error handlers, auth flows, database queries, or external service calls. Present them to the user for approval before adding.
 
