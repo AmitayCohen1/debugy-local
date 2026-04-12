@@ -30,7 +30,12 @@ For targeted instrumentation, add the Debugy logger. Here's a TypeScript example
 
 ```ts
 // lib/debugy.ts
+const DEBUGY_URL = "https://www.debugy.dev/api/logs";
 const DEBUGY_ENV = process.env.DEBUGY_ENV ?? "";
+const WRITE_KEY = process.env.NEXT_PUBLIC_DEBUGY_WRITE_KEY ?? process.env.DEBUGY_WRITE_KEY ?? "";
+const PROJECT = process.env.DEBUGY_PROJECT ?? "default";
+const IS_LOCAL = DEBUGY_ENV === "development";
+const IS_CLOUD = !!DEBUGY_ENV && !IS_LOCAL && !!WRITE_KEY;
 
 function log(file: string, fn: string, message: string, opts: { level?: string; duration_ms?: number; metadata?: Record<string, string | number | boolean | null> } = {}) {
   const entry = {
@@ -44,40 +49,51 @@ function log(file: string, fn: string, message: string, opts: { level?: string; 
     ...(opts.metadata && { metadata: opts.metadata }),
   };
 
-  // No DEBUGY_ENV set → do nothing (safe in production)
-  if (!DEBUGY_ENV) return;
-  // In development → write to local file. Other envs need cloud setup.
-  if (DEBUGY_ENV !== "development") return;
-
-  if (typeof window !== "undefined") {
-    // Browser: POST to local dev server
-    fetch("/api/debugy", {
+  if (IS_CLOUD) {
+    // Cloud: POST to Debugy API
+    fetch(DEBUGY_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(entry),
-    }).catch(() => {});
-  } else {
-    // Node.js: write directly to file
-    try {
-      const fs = require("fs");
-      fs.mkdirSync(".debugy", { recursive: true });
-      fs.appendFileSync(".debugy/session.ndjson", JSON.stringify(entry) + "\n");
-    } catch {}
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${WRITE_KEY}` },
+      body: JSON.stringify({ ...entry, project: PROJECT }),
+    }).catch((e) => console.warn("debugy:", e.message));
+  } else if (IS_LOCAL) {
+    if (typeof window !== "undefined") {
+      // Browser: POST to local dev server
+      fetch("/api/debugy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entry),
+      }).catch(() => {});
+    } else {
+      // Node.js: write directly to file
+      try {
+        const fs = require("fs");
+        fs.mkdirSync(".debugy", { recursive: true });
+        fs.appendFileSync(".debugy/session.ndjson", JSON.stringify(entry) + "\n");
+      } catch {}
+    }
   }
+  // No DEBUGY_ENV → no-op (safe in production without keys)
 }
 
 export const debugy = { log };
 ```
 
-**Client-side logs (optional):** If the project runs code in the browser, create a local API route so client logs reach the same file. The route just appends to `.debugy/session.ndjson`. Use whatever convention your framework supports — for example:
+**Client-side logs (local mode):** If the project has browser code and uses local mode, add a local API route so client logs reach the same file. Here's a Next.js example — adapt for your framework:
 
-- **Next.js**: `app/api/debugy/route.ts`
-- **Express**: `app.post("/api/debugy", ...)`
-- **SvelteKit**: `src/routes/api/debugy/+server.ts`
+```ts
+// app/api/debugy/route.ts
+import { writeFileSync, mkdirSync } from "fs";
 
-The handler is the same for all — read the JSON body, append it to `.debugy/session.ndjson`.
+export async function POST(req: Request) {
+  const entry = await req.json();
+  mkdirSync(".debugy", { recursive: true });
+  writeFileSync(".debugy/session.ndjson", JSON.stringify(entry) + "\n", { flag: "a" });
+  return new Response("ok");
+}
+```
 
-If the project has no backend (static site, SPA without API), skip this — the agent can add server-side `debugy.log()` calls or read browser console output from the terminal instead.
+In cloud mode, client-side logs POST directly to the Debugy API — no local route needed.
 
 Make sure `.debugy/` is in `.gitignore`.
 
