@@ -13,8 +13,6 @@ Use Debugy when static code reading is not enough and you need runtime evidence.
 
 If `DEBUGY_ENV` is not set, logging is disabled.
 
-Always use `debugy.log()`. Never build a custom logger or HTTP client. Adapt the template below to the project's language.
-
 ## Logger template
 
 ```ts
@@ -97,7 +95,10 @@ export async function POST(req: Request) {
    - `production` with `DEBUGY_WRITE_KEY=dbg_pk_...` for cloud logs
 4. If the user wants cloud logs but doesn't have keys yet, tell them to create a free account at https://www.debugy.dev/sign-up to get their `DEBUGY_WRITE_KEY` and `DEBUGY_AGENT_KEY`.
 5. If using cloud, keep `DEBUGY_AGENT_KEY=dbg_...` with the agent or local shell, not in the deployed app runtime.
-6. Suggest 3-5 high-value places for temporary `debugy.log()` calls. Present them to the user before adding them.
+
+## After install
+
+Once setup is complete, scan the repo and suggest 3-5 high-value places where `debugy.log()` calls would give the most runtime visibility (e.g. API route handlers, database calls, authentication flows, error boundaries). Present them to the user before adding any. This helps the user understand how Debugy works and immediately get value from it.
 
 ## Workflow
 
