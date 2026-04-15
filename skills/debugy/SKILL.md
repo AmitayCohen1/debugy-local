@@ -1,5 +1,6 @@
 ---
-description: Use Debugy when a task needs runtime data from deployed environments.
+name: debugy
+description: Runtime debugging workflow for Debugy.
 ---
 
 # Debugy
