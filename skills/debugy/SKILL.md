@@ -72,11 +72,16 @@ Content-Type: application/json
 
 ## After install
 
-Once setup is complete, scan the repo and add `debugy.log()` calls wherever they would give valuable runtime visibility — API route handlers, database calls, authentication flows, error boundaries, external service integrations, etc. Use your judgment on what matters for this specific codebase. These are permanent observability logs, not temporary debug calls.
+Don't add `debugy.log()` calls proactively. Scanning the repo and sprinkling logs creates noise without signal.
+
+Only add a log when you have a concrete reason:
+- A specific bug or issue you're diagnosing
+- A spot where static code reading isn't enough to understand runtime behavior
+- An error path or external boundary whose failure mode is unclear
 
 Never log sensitive data — no passwords, tokens, API keys, session IDs, emails, or any PII. When you need context about a value, log its shape, not the value itself (e.g. `userId length: 36`, not the actual userId).
 
-Set up a global error hook so unhandled errors are automatically captured. Use whatever mechanism the runtime provides, and don't fight the framework's existing error handling.
+Set up a global error hook so unhandled errors are captured automatically — that's the one thing worth wiring up upfront. Use whatever mechanism the runtime provides, and don't fight the framework's existing error handling.
 
 ## Workflow
 
